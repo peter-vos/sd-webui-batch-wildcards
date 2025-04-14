@@ -26,11 +26,11 @@ class WildcardsScript(scripts.Script):
             visible=True,
         ) as wildcards_enable:
             with gr.Row():
-                wildcards_sameseed = gr.Checkbox(
-                    label="Use same seed for all images",
+                wildcards_write_infotext = gr.Checkbox(
+                    label="Write infotext",
                     value=False,
                     visible=True,
-                    elem_id="wildcards_sameseed",
+                    elem_id="wildcards_write_infotext",
                 )
             with gr.Row():
                 with gr.Column():
@@ -43,17 +43,34 @@ class WildcardsScript(scripts.Script):
                     )
                 with gr.Column():
                     wildcards_length = gr.Number(
-                        label='Global length',
+                        label='Global length; -1 = no limit',
                         value=-1,
                         elem_id="wildcards_length",
                         precision=0,
                         min_width=100
                     )
+            with gr.Row():
+                with gr.Column():
+                    wildcards_repeat_replace = gr.Number(
+                        label='Repeat replace value # iterations',
+                        value=1,
+                        elem_id="wildcards_repeat_replace",
+                        precision=0,
+                        min_width=100
+                    )
+                with gr.Column():
+                    wildcards_repeat_seed = gr.Number(
+                        label='Repeat seeds every # iterations; -1 = do not repeat',
+                        value=--1,
+                        elem_id="wildcards_repeat_seed",
+                        precision=0,
+                        min_width=100
+                    )
         
-        components = [wildcards_enable, wildcards_sameseed, wildcards_start_index, wildcards_length]
+        components = [wildcards_enable, wildcards_write_infotext, wildcards_start_index, wildcards_length, wildcards_repeat_replace, wildcards_repeat_seed]
         return components
 
-    def replace_wildcard(self, text, seed, iter, start_index, length):
+    def replace_wildcard(self, text, seed, iter):
         if " " in text or len(text) == 0:
             return text
 
@@ -84,42 +101,53 @@ class WildcardsScript(scripts.Script):
         if not lines:
             return text
 
-        limitedIter = iter % length if length > 0 else iter
-        lineNr = start_index + limitedIter
+        repeatedIter = iter // self.repeat_replace if self.repeat_replace > 1 else iter
+        limitedIter = repeatedIter % self.length if self.length > 0 else repeatedIter
+        lineNr = self.start_index + limitedIter
                 
         return lines[lineNr % len(lines)]
 
-    def replace_prompts(self, prompts, seeds, start_index, length):
+    def replace_prompts(self, prompts, seeds):
         res = []
 
         for i, text in enumerate(prompts):
-            res.append("".join(self.replace_wildcard(chunk, seeds[i], i, start_index, length) for chunk in text.split("__")))
+            res.append("".join(self.replace_wildcard(chunk, seeds[i], i) for chunk in text.split("__")))
 
         return res
 
-    def apply_wildcards(self, p, attr, infotext_suffix, start_index, length, infotext_compare=None):
+    def apply_wildcards(self, p, attr, infotext_suffix, infotext_compare=None):
         if all_original_prompts := getattr(p, attr, None):
-            setattr(p, attr, self.replace_prompts(all_original_prompts, p.all_seeds, start_index, length))
-            if (shared.opts.wildcards_write_infotext and all_original_prompts[0] != getattr(p, attr)[0] and
+            setattr(p, attr, self.replace_prompts(all_original_prompts, p.all_seeds))
+            if (self.write_infotext and all_original_prompts[0] != getattr(p, attr)[0] and
                     (not infotext_compare or p.extra_generation_params.get(f"Wildcard {infotext_compare}", None) != all_original_prompts[0])):
                 p.extra_generation_params[f"Wildcard {infotext_suffix}"] = all_original_prompts[0]
 
-    def process(self, p, wildcards_enable, wildcards_sameseed, wildcards_start_index, wildcards_length):
+    def process(self, p, wildcards_enable, wildcards_write_infotext, wildcards_start_index, wildcards_length, wildcards_repeat_replace, wildcards_repeat_seed):
         if not wildcards_enable:
             return
 
         self.cache = dict()
-        if wildcards_sameseed:
-            seed = p.all_seeds[0]
+        self.start_index = wildcards_start_index
+        self.length = wildcards_length
+        self.repeat_replace = wildcards_repeat_replace
+        self.write_infotext = wildcards_write_infotext
+        
+        if wildcards_repeat_seed > 0:
             nr_of_seeds = len(p.all_seeds)
-            p.all_seeds = []
-            for i in range(nr_of_seeds):
-                p.all_seeds.append(seed)
+            if nr_of_seeds > wildcards_repeat_seed:
+                seeds_subset = p.all_seeds[:wildcards_repeat_seed]
+                p.all_seeds = seeds_subset[:]
+                while len(p.all_seeds) < nr_of_seeds:
+                    p.all_seeds.extend(seeds_subset)
+                else:
+                    p.all_seeds = p.all_seeds[:nr_of_seeds]
 
         p.extra_generation_params["wildcards_enable"] = wildcards_enable
-        p.extra_generation_params["wildcards_sameseed"] = wildcards_sameseed
+        p.extra_generation_params["wildcards_write_infotext"] = wildcards_write_infotext
         p.extra_generation_params["wildcards_start_index"] = wildcards_start_index
         p.extra_generation_params["wildcards_length"] = wildcards_length
+        p.extra_generation_params["wildcards_repeat_replace"] = wildcards_repeat_replace
+        p.extra_generation_params["wildcards_repeat_seed"] = wildcards_repeat_seed
 
         for attr, infotext_suffix, infotext_compare in [
             ('all_prompts', 'prompt', None),
@@ -127,10 +155,4 @@ class WildcardsScript(scripts.Script):
             ('all_hr_prompts', 'hr prompt', 'prompt'),
             ('all_hr_negative_prompts', 'hr negative prompt', 'negative prompt'),
         ]:
-            self.apply_wildcards(p, attr, infotext_suffix, wildcards_start_index, wildcards_length, infotext_compare)
-
-def on_ui_settings():
-    shared.opts.add_option("wildcards_write_infotext", shared.OptionInfo(True, "Write original prompt to infotext", section=("wildcards", "Wildcards")).info("the original prompt before __wildcards__ are applied"))
-
-
-script_callbacks.on_ui_settings(on_ui_settings)
+            self.apply_wildcards(p, attr, infotext_suffix, infotext_compare)
