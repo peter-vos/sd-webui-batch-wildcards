@@ -1,3 +1,4 @@
+from functools import cache
 import os
 import random
 import sys
@@ -55,32 +56,38 @@ class WildcardsScript(scripts.Script):
     def replace_wildcard(self, text, seed, iter, start_index, length):
         if " " in text or len(text) == 0:
             return text
-        
+
         isRandom = True
         if text.startswith("#"):
             isRandom = False
             text = text[1:]
 
-        wildcards_dir = shared.cmd_opts.wildcards_dir or os.path.join(repo_dir, "wildcards")
-
-        replacement_file = os.path.join(wildcards_dir, f"{text}.txt")
-        if os.path.exists(replacement_file):
-            with open(replacement_file, encoding="utf8") as f:
-                lines = f.read().splitlines()
-                if isRandom:
-                    random.seed(seed)
-                    random.shuffle(lines)
-
-                limitedIter = iter % length if length > 0 else iter
-                lineNr = start_index + limitedIter
-                
-                return lines[lineNr % len(lines)]
+        if text in self.cache:
+            lines = self.cache[text]
         else:
-            if replacement_file not in warned_about_files:
-                print(f"File {replacement_file} not found for the __{text}__ wildcard.", file=sys.stderr)
-                warned_about_files[replacement_file] = 1
+            wildcards_dir = shared.cmd_opts.wildcards_dir or os.path.join(repo_dir, "wildcards")
 
-        return text
+            replacement_file = os.path.join(wildcards_dir, f"{text}.txt")
+            if os.path.exists(replacement_file):
+                with open(replacement_file, encoding="utf8") as f:
+                    lines = f.read().splitlines()
+                    if isRandom:
+                        random.seed(seed)
+                        random.shuffle(lines)
+                        # Shuffle once before storing to prevent doubles
+                        self.cache[text] = lines
+            else:
+                if replacement_file not in warned_about_files:
+                    print(f"File {replacement_file} not found for the __{text}__ wildcard.", file=sys.stderr)
+                    warned_about_files[replacement_file] = 1
+
+        if not lines:
+            return text
+
+        limitedIter = iter % length if length > 0 else iter
+        lineNr = start_index + limitedIter
+                
+        return lines[lineNr % len(lines)]
 
     def replace_prompts(self, prompts, seeds, start_index, length):
         res = []
@@ -101,12 +108,18 @@ class WildcardsScript(scripts.Script):
         if not wildcards_enable:
             return
 
+        self.cache = dict()
         if wildcards_sameseed:
             seed = p.all_seeds[0]
             nr_of_seeds = len(p.all_seeds)
             p.all_seeds = []
             for i in range(nr_of_seeds):
                 p.all_seeds.append(seed)
+
+        p.extra_generation_params["wildcards_enable"] = wildcards_enable
+        p.extra_generation_params["wildcards_sameseed"] = wildcards_sameseed
+        p.extra_generation_params["wildcards_start_index"] = wildcards_start_index
+        p.extra_generation_params["wildcards_length"] = wildcards_length
 
         for attr, infotext_suffix, infotext_compare in [
             ('all_prompts', 'prompt', None),
@@ -115,11 +128,6 @@ class WildcardsScript(scripts.Script):
             ('all_hr_negative_prompts', 'hr negative prompt', 'negative prompt'),
         ]:
             self.apply_wildcards(p, attr, infotext_suffix, wildcards_start_index, wildcards_length, infotext_compare)
-
-        p.extra_generation_params["wildcards_enable"] = wildcards_enable
-        p.extra_generation_params["wildcards_sameseed"] = wildcards_sameseed
-        p.extra_generation_params["wildcards_start_index"] = wildcards_start_index
-        p.extra_generation_params["wildcards_length"] = wildcards_length
 
 def on_ui_settings():
     shared.opts.add_option("wildcards_write_infotext", shared.OptionInfo(True, "Write original prompt to infotext", section=("wildcards", "Wildcards")).info("the original prompt before __wildcards__ are applied"))
