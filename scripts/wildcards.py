@@ -61,7 +61,7 @@ class WildcardsScript(scripts.Script):
                 with gr.Column():
                     wildcards_repeat_seed = gr.Number(
                         label='Repeat seeds every # iterations; -1 = do not repeat',
-                        value=--1,
+                        value=-1,
                         elem_id="wildcards_repeat_seed",
                         precision=0,
                         min_width=100
