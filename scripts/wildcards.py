@@ -141,13 +141,14 @@ class WildcardsScript(scripts.Script):
                     p.all_seeds.extend(seeds_subset)
                 else:
                     p.all_seeds = p.all_seeds[:nr_of_seeds]
-
-        p.extra_generation_params["wildcards_enable"] = wildcards_enable
-        p.extra_generation_params["wildcards_write_infotext"] = wildcards_write_infotext
-        p.extra_generation_params["wildcards_start_index"] = wildcards_start_index
-        p.extra_generation_params["wildcards_length"] = wildcards_length
-        p.extra_generation_params["wildcards_repeat_replace"] = wildcards_repeat_replace
-        p.extra_generation_params["wildcards_repeat_seed"] = wildcards_repeat_seed
+        
+        if wildcards_write_infotext:
+            p.extra_generation_params["wildcards_enable"] = wildcards_enable
+            p.extra_generation_params["wildcards_write_infotext"] = wildcards_write_infotext
+            p.extra_generation_params["wildcards_start_index"] = wildcards_start_index
+            p.extra_generation_params["wildcards_length"] = wildcards_length
+            p.extra_generation_params["wildcards_repeat_replace"] = wildcards_repeat_replace
+            p.extra_generation_params["wildcards_repeat_seed"] = wildcards_repeat_seed
 
         for attr, infotext_suffix, infotext_compare in [
             ('all_prompts', 'prompt', None),
