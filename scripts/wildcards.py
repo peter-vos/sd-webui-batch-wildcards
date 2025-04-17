@@ -70,7 +70,7 @@ class WildcardsScript(scripts.Script):
         components = [wildcards_enable, wildcards_write_infotext, wildcards_start_index, wildcards_length, wildcards_repeat_replace, wildcards_repeat_seed]
         return components
 
-    def replace_wildcard(self, text, seed, iter):
+    def replace_wildcard_recursive(self, text, seed, iter, visitedTokens):
         if " " in text or len(text) == 0:
             return text
 
@@ -78,7 +78,12 @@ class WildcardsScript(scripts.Script):
         if text.startswith("#"):
             isRandom = False
             text = text[1:]
-
+        
+        # No infinite recursion
+        if text in visitedTokens:
+            return text
+        
+        lines = []
         if text in self.cache:
             lines = self.cache[text]
         else:
@@ -104,8 +109,15 @@ class WildcardsScript(scripts.Script):
         repeatedIter = iter // self.repeat_replace if self.repeat_replace > 1 else iter
         limitedIter = repeatedIter % self.length if self.length > 0 else repeatedIter
         lineNr = self.start_index + limitedIter
-                
-        return lines[lineNr % len(lines)]
+        
+        replacedText = lines[lineNr % len(lines)]
+        if "__" in replacedText:
+            return "".join(self.replace_wildcard_recursive(chunk, seed, iter, visitedTokens) for chunk in replacedText.split("__"))
+
+        return replacedText
+
+    def replace_wildcard(self, text, seed, iter):
+        return self.replace_wildcard_recursive(text, seed, iter, [])
 
     def replace_prompts(self, prompts, seeds):
         res = []
